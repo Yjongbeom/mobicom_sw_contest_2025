@@ -1,0 +1,28 @@
+openai:
+  api:
+    key: ${OPENAI_KEY}
+    url: ${OPENAI_URL}
+upstage:
+  api:
+    key: ${UPSTAGE_KEY}
+    url: ${UPSTAGE_URL}
+law:
+  api:
+    key: ${LAW_KEY}
+    url: ${LAW_URL}
+cloud:
+  aws:
+    credentials:
+      access-key: ${AWS_ACCESS_KEY}
+      secret-key: ${AWS_SECRET_KEY}
+    s3:
+      bucket: ${AWS_BUCKET}
+    region:
+      static: ap-northeast-2
+    stack:
+      auto: false
+papago:
+  api:
+    client-id: ${PAPAGO_CLIENT_ID}
+    client-secret: ${PAPAGO_CLIENT_SECRET}
+    url: https://papago.apigw.ntruss.com/image-to-image/v1/translate
