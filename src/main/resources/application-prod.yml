@@ -26,3 +26,6 @@ papago:
     client-id: ${PAPAGO_CLIENT_ID}
     client-secret: ${PAPAGO_CLIENT_SECRET}
     url: https://papago.apigw.ntruss.com/image-to-image/v1/translate
+
+jwt:
+  secret: ${JWT_SECRET}
