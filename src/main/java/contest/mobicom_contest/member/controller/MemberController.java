@@ -61,6 +61,7 @@ public class MemberController {
 
         Member member = memberService.retrieveUser(memberId);
         MemberDto memberDto = new MemberDto(
+                member.getUsername(),
                 member.getNationality(),
                 member.getLanguage(),
                 member.getWorkLocation(),
