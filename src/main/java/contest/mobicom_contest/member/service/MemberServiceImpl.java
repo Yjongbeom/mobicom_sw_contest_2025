@@ -16,6 +16,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Optional;
+
 @Service
 @Slf4j
 @RequiredArgsConstructor
@@ -103,5 +105,10 @@ public class MemberServiceImpl implements MemberService {
     public Member findById(Long id) {
         return memberRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 회원입니다. id: " + id));
+    }
+
+    @Override
+    public Optional<Member> findByUsername(String username) {
+        return memberRepository.findByUsername(username);
     }
 }

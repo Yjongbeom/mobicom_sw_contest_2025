@@ -5,6 +5,8 @@ import contest.mobicom_contest.member.model.Member;
 import contest.mobicom_contest.member.model.Role;
 import contest.mobicom_contest.member.dto.MemberDto;
 
+import java.util.Optional;
+
 public interface MemberService {
     // 로그인
     JwtToken signIn(String username, String password);
@@ -31,4 +33,6 @@ public interface MemberService {
     void deleteUser(Long memberId);
 
     Member findById(Long id);
+
+    Optional<Member> findByUsername(String username);
 }

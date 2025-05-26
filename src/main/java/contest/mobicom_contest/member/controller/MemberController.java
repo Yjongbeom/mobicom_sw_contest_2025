@@ -1,6 +1,7 @@
 package contest.mobicom_contest.member.controller;
 
 import contest.mobicom_contest.jwt.JwtToken;
+import contest.mobicom_contest.member.dto.CustomAuthResponseDto;
 import contest.mobicom_contest.member.model.Member;
 import contest.mobicom_contest.member.service.MemberService;
 import contest.mobicom_contest.member.dto.MemberDto;
@@ -22,7 +23,7 @@ public class MemberController {
 
     @Operation(summary = "회원가입")
     @PostMapping("/register")
-    public ResponseEntity<JwtToken> register(@Valid @RequestBody SignUpDto signUpDto) {
+    public ResponseEntity<CustomAuthResponseDto> register(@Valid @RequestBody SignUpDto signUpDto) {
         Member member = memberService.signUp(
                 signUpDto.getUsername(),
                 signUpDto.getPassword(),
@@ -39,18 +40,20 @@ public class MemberController {
         );
 
         log.info("Saved Member: {}", member);
-        return ResponseEntity.ok(jwtToken);
+        return ResponseEntity.ok(new CustomAuthResponseDto(member.getId(), jwtToken));
     }
 
     @Operation(summary = "로그인")
     @PostMapping("/login")
-    public ResponseEntity<JwtToken> login(@RequestBody SignInDto signInDto) {
+    public ResponseEntity<CustomAuthResponseDto> login(@RequestBody SignInDto signInDto) {
         JwtToken jwtToken = memberService.signIn(
                 signInDto.getUsername(),
                 signInDto.getPassword()
         );
 
-        return ResponseEntity.ok(jwtToken);
+        Member member = memberService.findByUsername(signInDto.getUsername()).orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        return ResponseEntity.ok(new CustomAuthResponseDto(member.getId(), jwtToken));
     }
 
     @Operation(summary = "회원 정보 조회")
