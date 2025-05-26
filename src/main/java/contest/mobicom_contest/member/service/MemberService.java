@@ -12,7 +12,7 @@ public interface MemberService {
     JwtToken signIn(String username, String password);
 
     // 회원가입
-    Member signUp(String username, String password, Role role, String nationality, String language, Integer experienceYears, String workLocation);
+    Member signUp(String username, String password, Role role, String nationality, String language, Integer experienceYears, String workLocation, String phone, String nickname);
 
     // JWT 기반 사용자 수정 (사용 안함)
     // Member updateUser(MemberDto memberDto);

@@ -23,6 +23,8 @@ public class SignUpDto {
     @Schema(description = "비밀번호")
     private String password;
 
+    private String phone;
+    private String nickname;
     private String nationality;
     private String language;
     private String workLocation;

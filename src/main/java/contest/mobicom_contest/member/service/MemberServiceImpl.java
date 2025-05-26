@@ -37,7 +37,7 @@ public class MemberServiceImpl implements MemberService {
     }
 
     @Override
-    public Member signUp(String username, String password, Role role, String nationality, String language, Integer experienceYears, String workLocation) {
+    public Member signUp(String username, String password, Role role, String nationality, String language, Integer experienceYears, String workLocation, String phone, String nickname) {
         if (password == null || password.isEmpty()) {
             throw new IllegalArgumentException("Password cannot be null or empty");
         }
@@ -54,6 +54,8 @@ public class MemberServiceImpl implements MemberService {
                 .language(language)
                 .experienceYears(experienceYears)
                 .workLocation(workLocation)
+                .phone(phone)
+                .nickname(nickname)
                 .build();
 
         return memberRepository.save(member);

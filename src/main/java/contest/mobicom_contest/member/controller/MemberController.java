@@ -31,7 +31,9 @@ public class MemberController {
                 signUpDto.getLanguage(),
                 signUpDto.getNationality(),
                 signUpDto.getExperienceYears(),
-                signUpDto.getWorkLocation()
+                signUpDto.getWorkLocation(),
+                signUpDto.getPhone(),
+                signUpDto.getNickname()
         );
 
         JwtToken jwtToken = memberService.signIn(
@@ -68,7 +70,9 @@ public class MemberController {
                 member.getNationality(),
                 member.getLanguage(),
                 member.getWorkLocation(),
-                member.getExperienceYears()
+                member.getExperienceYears(),
+                member.getPhone(),
+                member.getNickname()
         );
 
         return ResponseEntity.ok(memberDto);
@@ -95,7 +99,9 @@ public class MemberController {
                 member.getNationality(),
                 member.getLanguage(),
                 member.getWorkLocation(),
-                member.getExperienceYears()
+                member.getExperienceYears(),
+                member.getPhone(),
+                member.getNickname()
         );
 
         return ResponseEntity.ok(updatedDto);

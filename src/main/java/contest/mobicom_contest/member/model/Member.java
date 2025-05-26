@@ -39,6 +39,12 @@ public class Member implements UserDetails {
     @Column(nullable = false)
     private String language;
 
+    @Column(nullable = false)
+    private String nickname;
+
+    @Column(nullable = false)
+    private String phone;
+
     @Column(name = "work_location")
     private String workLocation;
 
