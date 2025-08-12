@@ -1,0 +1,10 @@
+# project.toml
+
+[[build.buildpacks]]
+uri = "heroku/jvm"
+
+[[build.buildpacks]]
+uri = "https://github.com/heroku/heroku-buildpack-google-chrome"
+
+[[build.buildpacks]]
+uri = "https://github.com/heroku/heroku-buildpack-chromedriver"
