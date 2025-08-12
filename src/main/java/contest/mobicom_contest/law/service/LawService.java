@@ -40,15 +40,30 @@ public class LawService {
                 ? "English"
                 : member.getLanguage();
 
+        // 1. AI를 통해 계약서에서 한국어로 된 법적 쟁점(issue) 감지
         List<Issue> issues = openAiClient.detectUnfairClauses(contract.getOcrText());
+
+        // 2. [신규] 감지된 이슈의 'reason' 필드를 사용자 언어로 번역
+        // 참고: Issue DTO에 setReason 메서드가 있어야 합니다. (@Setter 또는 @Data)
+        if (!"Korean".equalsIgnoreCase(targetLanguage) && !"ko".equalsIgnoreCase(targetLanguage)) {
+             for (Issue issue : issues) {
+                 String originalReason = issue.getReason();
+                 if (StringUtils.hasText(originalReason)) {
+                     String translatedReason = openAiClient.translateText(originalReason, targetLanguage);
+                     issue.setReason(translatedReason);
+                 }
+             }
+        }
+        
         Map<Issue, List<LawInfo>> issueLawMap = new HashMap<>();
 
         for (Issue issue : issues) {
+            // 3. 각 쟁점과 관련된 법률 목록을 API로 검색
             List<LawInfo> laws = lawApiClient.searchRelatedLaws(issue.getType(), contract);
 
             laws.forEach(law -> {
                 try {
-                    // [최종 수정] 웹 스크래핑 대신, LawApiClient의 상세조회 API를 호출합니다.
+                    // 4. 법률의 상세 본문 내용을 API로 조회
                     String lawContent = lawApiClient.fetchLawDetailByApi(law.getLawSerialNumber());
 
                     if (!StringUtils.hasText(lawContent)) {
@@ -56,6 +71,7 @@ public class LawService {
                         return;
                     }
 
+                    // 5. AI를 통해 법률 이름 번역 및 본문 요약/번역
                     law.setTranslatedLawName(
                             openAiClient.translateText(law.getLawName(), targetLanguage)
                     );
@@ -89,7 +105,7 @@ public class LawService {
                         .collect(Collectors.toList())
         );
     }
-
+    
     public List<LawInfo> getLawsByContractId(Long contractId) {
         return lawInfoRepository.findByContractContractId(contractId);
     }
