@@ -38,18 +38,19 @@ public class OpenAiClient {
         ObjectNode message1 = mapper.createObjectNode();
         message1.put("role", "system");
         message1.put("content", """
-        다음 근로계약서 문장에서 법적 문제가 있는 조항을 분류하세요. 반드시 아래 JSON 형식으로만 응답:
-        
-        {
-          "issues": [
+        당신은 대한민국 근로기준법 전문가입니다.
+            주어진 근로계약서 내용에서 법적으로 문제가 될 수 있는 조항을 찾아내 분석해야 합니다.
+            분석 결과는 반드시 아래의 JSON 형식에 맞춰서, JSON 객체만 응답해야 합니다. 다른 설명은 절대 추가하지 마세요.
+            
             {
-              "type": "퇴직금|최저임금|근로시간|부당해고|계약해지|기타",
-              "reason": "구체적인 법률 조항 포함 설명",
-              "evidence": "계약서 문장 중 정확한 인용문"
+              "issues": [
+                {
+                  "type": "퇴직금|최저임금|근로시간|부당해고|계약해지|기타",
+                  "reason": "어떤 법률 조항(예: 근로기준법 제 O조)에 위배되는지 구체적인 이유 설명",
+                  "evidence": "계약서 내용 중 문제가 되는 부분의 정확한 인용문"
+                }
+              ]
             }
-          ]
-        }
-        
         응답은 JSON만 포함해야 하며 다른 텍스트는 금지됨""");
 
         ObjectNode message2 = mapper.createObjectNode();
@@ -57,7 +58,7 @@ public class OpenAiClient {
         message2.put("content", text);
 
         ObjectNode requestBody = mapper.createObjectNode();
-        requestBody.put("model", "gpt-3.5-turbo");
+        requestBody.put("model", "gpt-4o");
         requestBody.set("messages", mapper.createArrayNode().add(message1).add(message2));
         requestBody.put("temperature", 0.3);
 
@@ -158,7 +159,7 @@ public class OpenAiClient {
 
             ObjectMapper mapper = new ObjectMapper();
             ObjectNode requestBody = mapper.createObjectNode();
-            requestBody.put("model", "gpt-3.5-turbo");
+            requestBody.put("model", "gpt-4o");
 
             ArrayNode messages = mapper.createArrayNode();
             ObjectNode message = mapper.createObjectNode();
