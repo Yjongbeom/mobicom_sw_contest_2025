@@ -10,23 +10,12 @@ import contest.mobicom_contest.law.dto.LawInfoDTO;
 import contest.mobicom_contest.law.model.LawInfo;
 import contest.mobicom_contest.law.model.LawInfoRepository;
 import contest.mobicom_contest.member.model.Member;
-
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
-import org.jsoup.select.Elements;
-import org.openqa.selenium.By;
-import org.openqa.selenium.WebDriver;
-import org.openqa.selenium.chrome.ChromeDriver;
-import org.openqa.selenium.chrome.ChromeOptions;
-import org.openqa.selenium.support.ui.ExpectedConditions;
-import org.openqa.selenium.support.ui.WebDriverWait;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -59,10 +48,11 @@ public class LawService {
 
             laws.forEach(law -> {
                 try {
-                    String lawContent = fetchLawDetailContent(law.getDetailUrl());
+                    // [최종 수정] 웹 스크래핑 대신, LawApiClient의 상세조회 API를 호출합니다.
+                    String lawContent = lawApiClient.fetchLawDetailByApi(law.getLawSerialNumber());
 
-                    if (lawContent == null || lawContent.isBlank()) {
-                        log.warn("법률 '{}'의 내용을 가져오지 못해 처리를 건너뜁니다.", law.getLawName());
+                    if (!StringUtils.hasText(lawContent)) {
+                        log.warn("법률 '{}'의 상세 내용을 API로 가져오지 못했습니다. 분석을 건너뜁니다.", law.getLawName());
                         return;
                     }
 
@@ -80,7 +70,7 @@ public class LawService {
 
             try {
                 List<LawInfo> validLaws = laws.stream()
-                        .filter(law -> law.getTranslatedSummary() != null && !law.getTranslatedSummary().isBlank())
+                        .filter(l -> l.getTranslatedSummary() != null && !l.getTranslatedSummary().isBlank())
                         .collect(Collectors.toList());
                 lawInfoRepository.saveAll(validLaws);
                 issueLawMap.put(issue, validLaws);
@@ -98,55 +88,6 @@ public class LawService {
                         .map(LawInfoDTO::new)
                         .collect(Collectors.toList())
         );
-    }
-
-    /**
-     * Selenium과 Buildpack을 사용하여 Cloudtype 환경에서 동작하는 크롤러
-     */
-    private String fetchLawDetailContent(String detailPath) {
-        if (detailPath == null || detailPath.isBlank()) {
-            return "";
-        }
-        
-        // Cloudtype Buildpack이 ChromeDriver를 자동으로 설치하고 경로를 설정해주므로
-        // System.setProperty나 WebDriverManager.setup() 호출이 필요 없습니다.
-        
-        ChromeOptions options = new ChromeOptions();
-        options.addArguments("--headless"); // GUI가 없는 환경을 위한 필수 옵션
-        options.addArguments("--no-sandbox"); // 컨테이너 환경에서의 권한 문제 방지
-        options.addArguments("--disable-dev-shm-usage"); // 공유 메모리 관련 문제 방지
-        options.addArguments("--disable-gpu"); // GPU 가속 비활성화
-        options.addArguments("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36");
-
-        WebDriver driver = null;
-        try {
-            driver = new ChromeDriver(options);
-            WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(15)); // 대기시간을 15초로 조금 더 넉넉하게 설정
-            
-            String pageUrl = "https://www.law.go.kr" + detailPath;
-            log.info("Selenium으로 페이지 접속: {}", pageUrl);
-            driver.get(pageUrl);
-
-            // <iframe>으로 프레임 전환
-            wait.until(ExpectedConditions.frameToBeAvailableAndSwitchToIt(By.id("lawService")));
-
-            // <iframe> 내부에서 '#contentBody' 요소가 나타날 때까지 대기
-            wait.until(ExpectedConditions.presenceOfElementLocated(By.cssSelector("#contentBody")));
-            
-            // 최종 렌더링된 페이지 소스를 Jsoup으로 파싱
-            Document doc = Jsoup.parse(driver.getPageSource());
-            Elements contentElements = doc.select("#contentBody");
-            
-            return contentElements.text();
-
-        } catch (Exception e) {
-            log.error("Selenium 크롤링 중 오류 발생: {}", e.getMessage());
-            return "";
-        } finally {
-            if (driver != null) {
-                driver.quit(); // 드라이버 프로세스를 완전히 종료하여 리소스 누수 방지
-            }
-        }
     }
 
     public List<LawInfo> getLawsByContractId(Long contractId) {
