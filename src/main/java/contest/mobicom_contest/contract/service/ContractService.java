@@ -148,14 +148,7 @@ public class ContractService {
         try {
             String originalImageUrl;
 
-            // 1) 이미 S3에 올라가 있는 파일을 테스트하려면 contractImage == null 로 호출하고 상수 사용
-            if (contractImage == null) {
-                // 예제 하드코딩 URL 사용
-                originalImageUrl = EXAMPLE_ORIGINAL_URL;
-            } else {
-                // 파일이 들어왔으면 기존대로 originals에 업로드
-                originalImageUrl = s3Uploader.uploadFile(contractImage, "originals");
-            }
+            originalImageUrl = EXAMPLE_ORIGINAL_URL;
 
             // 2) 번역된(합성된) 이미지 URL 결정 — 두 가지 선택지 제공
             // A) 예제 그대로 하드코딩 사용 (테스트 전용)
@@ -175,6 +168,7 @@ public class ContractService {
             contractRepository.save(contract);
 
             return Map.of(
+                    "contractId", contract.getContractId(),
                     "originalImage", originalImageUrl,
                     "translatedImage", translatedImageUrl
             );
