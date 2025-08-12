@@ -37,7 +37,7 @@ public class LawApiClient {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    // ... (TARGET_MAP, QUERY_MAP은 기존과 동일)
+    // ... (TARGET_MAP, QUERY_MAP, searchRelatedLaws, fetchLawDetailByApi, parseLawSearchJson 메서드는 기존과 동일)
     private static final Map<String, List<String>> TARGET_MAP = Map.of(
             "퇴직금", List.of("law"), "최저임금", List.of("law"),
             "근로시간", List.of("law"), "부당해고", List.of("law"),
@@ -48,10 +48,6 @@ public class LawApiClient {
             "퇴직금", "근로자퇴직급여 보장법", "부당해고", "근로기준법",
             "계약해지", "근로기준법"
     );
-
-    /**
-     * 1단계: 법령 목록 검색 API 호출
-     */
     public List<LawInfo> searchRelatedLaws(String issueType, Contract contract) {
         String query = QUERY_MAP.getOrDefault(issueType, issueType);
         List<LawInfo> allLaws = new ArrayList<>();
@@ -75,10 +71,6 @@ public class LawApiClient {
         }
         return allLaws;
     }
-
-    /**
-     * 2단계: 법령 본문 조회 API 호출 (전체 조문 목록 획득)
-     */
     public String fetchLawDetailByApi(String lawSerialNumber) {
         if (lawSerialNumber == null || lawSerialNumber.isBlank()) return "";
         try {
@@ -97,7 +89,6 @@ public class LawApiClient {
         }
         return "";
     }
-
     private List<LawInfo> parseLawSearchJson(String json, Contract contract) throws Exception {
         JsonNode root = objectMapper.readTree(json);
         JsonNode lawNodes = root.path("LawSearch").path("law");
@@ -115,42 +106,62 @@ public class LawApiClient {
         }
         return laws;
     }
-    
+
+
     /**
-     * [최종 수정] 법령 기본정보 API 응답에서 '조문' 목록을 파싱하여 전체 텍스트로 조합합니다.
+     * [최종 수정] 여러 형태의 법령 본문 JSON 구조에 모두 대응하도록 수정
      */
     private String parseLawDetailJson(String json) throws Exception {
         JsonNode root = objectMapper.readTree(json);
         StringBuilder contentBuilder = new StringBuilder();
-
-        // [핵심] API 응답의 최상위 키가 '법령'이므로 경로를 수정합니다.
+        
         JsonNode lawMainNode = root.path("법령");
         
-        // 조문(article) 목록을 순회합니다.
+        // 1. 조문 내용 추출 (핵심 법 조항)
         JsonNode articleNodes = lawMainNode.path("조문");
+        if (articleNodes.has("조문단위") && articleNodes.get("조문단위").isArray()) {
+            // "조문": { "조문단위": [...] } 구조일 경우
+            articleNodes = articleNodes.path("조문단위");
+        }
+        
         if (articleNodes.isArray()) {
             for (JsonNode article : articleNodes) {
-                contentBuilder.append("\n--- ").append(article.path("조문제목").asText()).append(" ---\n");
+                contentBuilder.append("【").append(article.path("조문제목").asText()).append("】\n");
                 contentBuilder.append(stripHtmlTags(article.path("조문내용").asText())).append("\n");
 
-                // 항(clause) 목록을 순회합니다.
                 JsonNode clauseNodes = article.path("항");
                 if (clauseNodes.isArray()) {
                     for (JsonNode clause : clauseNodes) {
                         contentBuilder.append(stripHtmlTags(clause.path("항내용").asText())).append("\n");
                     }
                 }
+                contentBuilder.append("\n");
             }
-        } else {
-             log.warn("API 응답에서 조문 목록('법령.조문')을 찾을 수 없습니다.");
         }
-        
+
+        // 2. 제개정 이유 추출
+        JsonNode reasonNode = lawMainNode.path("제개정이유").path("제개정이유내용");
+        if (reasonNode.isArray()) {
+            contentBuilder.append("--- 제·개정 이유 ---\n");
+            for (JsonNode lineArray : reasonNode) {
+                if(lineArray.isArray()){
+                    for(JsonNode line : lineArray){
+                        contentBuilder.append(line.asText()).append("\n");
+                    }
+                }
+            }
+        }
+
+        if (contentBuilder.length() == 0) {
+            log.warn("API 응답에서 법령 본문 내용을 추출하지 못했습니다. JSON 구조를 확인해주세요.");
+        }
+
         return contentBuilder.toString();
     }
 
-    // HTML 태그를 제거하는 간단한 헬퍼 메서드
     private String stripHtmlTags(String htmlText) {
         if (htmlText == null) return "";
+        // <br/> 태그는 줄바꿈으로, 나머지 HTML 태그는 제거
         return htmlText.replaceAll("<br/>", "\n").replaceAll("<[^>]*>", "");
     }
 }
