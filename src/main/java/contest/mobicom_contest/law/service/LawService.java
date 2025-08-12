@@ -6,27 +6,20 @@ import contest.mobicom_contest.contract.dto.Issue;
 import contest.mobicom_contest.contract.model.Contract;
 import contest.mobicom_contest.contract.model.ContractRepository;
 import contest.mobicom_contest.law.dto.LawAnalyzeDto;
+import contest.mobicom_contest.law.dto.LawInfoDTO;
 import contest.mobicom_contest.law.model.LawInfo;
 import contest.mobicom_contest.law.model.LawInfoRepository;
 import contest.mobicom_contest.member.model.Member;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
-import org.jsoup.select.Elements;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestTemplate;
 
-import java.util.ArrayList; // issues 필드 초기화를 위해 추가
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-import contest.mobicom_contest.law.dto.LawInfoDTO;
 
 @Slf4j
 @Service
@@ -40,10 +33,9 @@ public class LawService {
 
     public LawAnalyzeDto analyzeLegalIssues(Long contractId) {
         Contract contract = contractRepository.findById(contractId)
-                .orElseThrow(() -> new IllegalArgumentException("계약서 없음"));
+                .orElseThrow(() -> new IllegalArgumentException("계약서를 찾을 수 없습니다."));
 
         Member member = contract.getMember();
-
 
         String languageFromMember = member.getLanguage();
         final String targetLanguage = StringUtils.hasText(languageFromMember) ? languageFromMember : "English";
@@ -51,53 +43,53 @@ public class LawService {
         if (!StringUtils.hasText(languageFromMember)) {
             log.warn("Member ID {}의 언어 설정이 비어있어 기본값 'English'를 사용합니다.", member.getId());
         }
-        log.info("분석 대상 언어: {}", targetLanguage);
 
+        // 1. AI를 통해 계약서에서 법적 쟁점(issue) 감지
         List<Issue> issues = openAiClient.detectUnfairClauses(contract.getOcrText());
+        log.info("AI가 감지한 법적 이슈: {} 건", issues.size());
+        
         Map<Issue, List<LawInfo>> issueLawMap = new HashMap<>();
 
         for (Issue issue : issues) {
+            // 2. 각 쟁점과 관련된 법률 목록을 API로 검색
             List<LawInfo> laws = lawApiClient.searchRelatedLaws(issue.getType(), contract);
+            log.info("'{}' 이슈 관련 법률 {}건 검색됨", issue.getType(), laws.size());
 
             laws.forEach(law -> {
                 try {
-                    String lawContent = fetchLawDetailContent(law.getDetailUrl());
+                    // 3. 법률의 상세 본문 내용을 웹 스크래핑이 아닌 API로 조회
+                    String lawContent = lawApiClient.fetchLawDetailByApi(law.getLawSerialNumber());
 
-                    log.info("법률 [{}]의 상세 내용을 스크래핑했습니다. 내용 길이: {} 자", law.getLawName(), lawContent.length());
                     if (!StringUtils.hasText(lawContent)) {
-                        log.warn("법률 [{}]의 상세 내용이 비어있어 AI 분석을 건너뜁니다. URL: {}", law.getLawName(), law.getDetailUrl());
-                        return; 
+                        log.warn("법률 '{}'의 상세 내용을 API로 가져오지 못했습니다. 분석을 건너뜁니다.", law.getLawName());
+                        return; // 내용이 없으면 이 법률은 처리하지 않고 다음으로 넘어감
                     }
 
-                    law.setTranslatedLawName(
-                            openAiClient.translateText(law.getLawName(), targetLanguage)
-                    );
-
-                    String summary = openAiClient.summarizeAndTranslate(lawContent, targetLanguage);
-                    
-                    int maxLen = 3000;
-                    if (summary.length() > maxLen) {
-                        summary = summary.substring(0, maxLen) + "... [truncated]";
-                        log.warn("요약 내용이 {}자를 초과하여 잘렸습니다.", maxLen);
-                    }
-
-                    law.setTranslatedSummary(summary);
+                    // 4. AI를 통해 법률 이름 번역 및 본문 요약/번역
+                    law.setTranslatedLawName(openAiClient.translateText(law.getLawName(), targetLanguage));
+                    law.setTranslatedSummary(openAiClient.summarizeAndTranslate(lawContent, targetLanguage));
                     law.setContract(contract);
+                    log.info("성공적으로 법률 '{}' 처리 완료.", law.getLawName());
 
                 } catch (Exception e) {
-                    log.error("법령 상세 정보 처리 중 예외 발생: {}", e.getMessage(), e);
+                    log.error("법률 상세 정보 처리 중 예외 발생: '{}', {}", law.getLawName(), e.getMessage());
                 }
             });
 
             try {
+                // 요약/번역이 성공적으로 완료된 법률 정보만 필터링
                 List<LawInfo> validLaws = laws.stream()
-                                              .filter(l -> StringUtils.hasText(l.getTranslatedSummary()))
-                                              .collect(Collectors.toList());
-                lawInfoRepository.saveAll(validLaws);
+                        .filter(l -> StringUtils.hasText(l.getTranslatedSummary()))
+                        .collect(Collectors.toList());
+                
+                if (!validLaws.isEmpty()) {
+                    lawInfoRepository.saveAll(validLaws);
+                }
                 issueLawMap.put(issue, validLaws);
+
             } catch (DataIntegrityViolationException e) {
-                log.error("DB 저장 실패: {}", e.getRootCause() != null ? e.getRootCause().getMessage() : e.getMessage(), e);
-                throw new RuntimeException("법령 정보 저장 실패", e);
+                log.error("DB 저장 실패: {}", e.getMessage(), e);
+                throw new RuntimeException("법령 정보 저장에 실패했습니다.", e);
             }
         }
 
@@ -106,43 +98,7 @@ public class LawService {
                 .map(LawInfoDTO::new)
                 .collect(Collectors.toList());
 
-        // Lombok @Builder 경고를 해결하기 위해 DTO 생성 방식을 new 키워드로 명시합니다.
-        // 또는 LawAnalyzeDto에 @Builder.Default를 추가합니다.
-        return new LawAnalyzeDto(
-                contract.getContractId(),
-                issues,
-                allLawInfos
-        );
-    }
-
-    private String fetchLawDetailContent(String detailPath) {
-        if (detailPath == null || detailPath.isBlank()) {
-            log.warn("법령 상세 경로가 유효하지 않습니다.");
-            return "";
-        }
-
-        String detailUrl = "https://www.law.go.kr" + detailPath;
-        RestTemplate restTemplate = new RestTemplate();
-        try {
-            ResponseEntity<String> response = restTemplate.getForEntity(detailUrl, String.class);
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                return parseLawContent(response.getBody());
-            }
-            log.warn("법령 상세 조회 실패: URL={}, Status={}", detailUrl, response.getStatusCode());
-        } catch (Exception e) {
-            log.error("법령 상세 조회 중 예외 발생: URL={}", detailUrl, e);
-        }
-        return ""; // 실패 시 빈 문자열 반환
-    }
-
-    private String parseLawContent(String html) {
-        Document doc = Jsoup.parse(html);
-        Elements contentElements = doc.select("#contentBody"); 
-        
-        if (contentElements.isEmpty()) {
-            log.warn("지정한 CSS 셀렉터(#contentBody)로 내용을 찾지 못했습니다. 사이트 구조가 변경되었을 수 있습니다.");
-        }
-        return contentElements.eachText().stream().collect(Collectors.joining("\n"));
+        return new LawAnalyzeDto(contract.getContractId(), issues, allLawInfos);
     }
 
     public List<LawInfo> getLawsByContractId(Long contractId) {
