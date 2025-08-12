@@ -144,7 +144,7 @@ public class ContractService {
      * - 빠른 테스트용: contractImage 를 null 로 넘기고 EXAMPLE_* 상수 사용
      * - 실제 배포용(일반화): 원본 S3 URL을 업로드하거나 contractImage로 업로드한 뒤 deriveTranslatedUrl 로 번역본 URL을 만들 수 있음
      */
-    public Map<String, Object> analyzeUsingS3(Contract contract, MultipartFile contractImage) throws Exception {
+    public Map<String, Object> analyze(Contract contract, MultipartFile contractImage) throws Exception {
         try {
             String originalImageUrl;
 
