@@ -17,6 +17,9 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -125,16 +128,25 @@ public class LawService {
         }
 
         String realContentUrl;
-        // iframe의 src가 이미 "http"로 시작하는 완전한 URL인지 확인
         if (iframeSrc.startsWith("http")) {
             realContentUrl = iframeSrc;
         } else {
             realContentUrl = "https://www.law.go.kr" + iframeSrc;
         }
-        // ===============================================
+
+        // ================== [KEY FIX] ==================
+        // 2단계 접속 시, 실제 브라우저처럼 보이도록 HTTP 헤더를 추가합니다.
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36");
+        headers.set("Referer", framePageUrl); // '이전 페이지(액자 페이지)'에서 접속한 것처럼 보이게 함
+
+        HttpEntity<String> entity = new HttpEntity<>(headers);
 
         log.info("2단계 접속 시도 (진짜 본문): {}", realContentUrl);
-        ResponseEntity<String> contentResponse = restTemplate.getForEntity(realContentUrl, String.class);
+        // restTemplate.getForEntity 대신 exchange를 사용하여 헤더를 포함한 요청을 보냅니다.
+        ResponseEntity<String> contentResponse = restTemplate.exchange(realContentUrl, HttpMethod.GET, entity, String.class);
+        // ===============================================
+
         if (contentResponse.getStatusCode() == HttpStatus.OK) {
             return parseLawContent(contentResponse.getBody());
         }
@@ -143,14 +155,18 @@ public class LawService {
     }
 
     private String parseLawContent(String html) {
+        if (html == null || html.isBlank()) {
+            return "";
+        }
         Document doc = Jsoup.parse(html);
         Elements contentElements = doc.select("#contentBody");
         if (contentElements.isEmpty()) {
-            contentElements = doc.select(".lawcon"); // 만약을 대비한 대체 선택자
+            contentElements = doc.select(".lawcon");
         }
         return contentElements.text();
     }
 
+    // Other methods remain the same
     public List<LawInfo> getLawsByContractId(Long contractId) {
         return lawInfoRepository.findByContractContractId(contractId);
     }
