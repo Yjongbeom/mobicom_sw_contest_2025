@@ -30,6 +30,7 @@ dependencies {
     implementation 'org.json:json:20231013'
     implementation 'org.jsoup:jsoup:1.15.3'
     implementation 'org.seleniumhq.selenium:selenium-java:4.22.0'
+    implementation 'io.github.bonigarcia:webdrivermanager:5.9.1'
 
     implementation 'org.mariadb.jdbc:mariadb-java-client:3.2.0'
     compileOnly 'org.projectlombok:lombok:1.18.30'
