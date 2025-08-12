@@ -6,7 +6,6 @@ import contest.mobicom_contest.contract.dto.Issue;
 import contest.mobicom_contest.contract.model.Contract;
 import contest.mobicom_contest.contract.model.ContractRepository;
 import contest.mobicom_contest.law.dto.LawAnalyzeDto;
-import contest.mobicom_contest.law.dto.LawInfoDTO;
 import contest.mobicom_contest.law.model.LawInfo;
 import contest.mobicom_contest.law.model.LawInfoRepository;
 import contest.mobicom_contest.member.model.Member;
@@ -25,6 +24,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import contest.mobicom_contest.law.dto.LawInfoDTO;
 
 @Slf4j
 @Service
@@ -53,12 +53,6 @@ public class LawService {
                 try {
                     String lawContent = fetchLawDetailContent(law.getDetailUrl());
 
-                    // 스크래핑 실패 시 AI 호출을 건너뛰도록 방어 코드 추가
-                    if (lawContent == null || lawContent.isBlank()) {
-                        log.warn("법률 '{}'의 내용을 가져오지 못해 처리를 건너뜁니다. URL: {}", law.getLawName(), law.getDetailUrl());
-                        return;
-                    }
-
                     law.setTranslatedLawName(
                             openAiClient.translateText(law.getLawName(), targetLanguage)
                     );
@@ -72,22 +66,18 @@ public class LawService {
                     law.setTranslatedSummary(summary);
                     law.setContract(contract);
                 } catch (Exception e) {
-                    log.error("법령 상세 조회 또는 AI 처리 실패: {}", e.getMessage());
+                    log.error("법령 상세 조회 실패: {}", e.getMessage());
                 }
             });
 
             try {
-                // 요약이 성공한 법률만 저장
-                List<LawInfo> validLaws = laws.stream()
-                        .filter(law -> law.getTranslatedSummary() != null && !law.getTranslatedSummary().isBlank())
-                        .collect(Collectors.toList());
-                
-                lawInfoRepository.saveAll(validLaws);
-                issueLawMap.put(issue, validLaws);
+                lawInfoRepository.saveAll(laws);
             } catch (DataIntegrityViolationException e) {
                 log.error("DB 저장 실패: {}", e.getRootCause().getMessage());
                 throw new RuntimeException("법령 정보 저장 실패", e);
             }
+
+            issueLawMap.put(issue, laws);
         }
 
         return new LawAnalyzeDto(
@@ -95,7 +85,7 @@ public class LawService {
                 issues,
                 issueLawMap.values().stream()
                         .flatMap(List::stream)
-                        .map(LawInfoDTO::new)
+                        .map(LawInfoDTO::new) //
                         .collect(Collectors.toList())
         );
     }
@@ -121,6 +111,7 @@ public class LawService {
         return contentElements.eachText().stream().collect(Collectors.joining("\n"));
     }
 
+
     public List<LawInfo> getLawsByContractId(Long contractId) {
         return lawInfoRepository.findByContractContractId(contractId);
     }
@@ -130,3 +121,4 @@ public class LawService {
                 .orElseThrow(() -> new IllegalArgumentException("법률 정보를 찾을 수 없습니다."));
     }
 }
+
