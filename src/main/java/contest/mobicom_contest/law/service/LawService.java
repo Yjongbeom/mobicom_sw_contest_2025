@@ -42,40 +42,21 @@ public class LawService {
 
         // 1. AI를 통해 계약서에서 한국어로 된 법적 쟁점(issue) 감지
         List<Issue> issues = openAiClient.detectUnfairClauses(contract.getOcrText());
-
-        // 2. [신규] 감지된 이슈의 'reason' 필드를 사용자 언어로 번역
-        // 참고: Issue DTO에 setReason 메서드가 있어야 합니다. (@Setter 또는 @Data)
-        if (!"Korean".equalsIgnoreCase(targetLanguage) && !"ko".equalsIgnoreCase(targetLanguage)) {
-             for (Issue issue : issues) {
-                 String originalReason = issue.getReason();
-                 if (StringUtils.hasText(originalReason)) {
-                     String translatedReason = openAiClient.translateText(originalReason, targetLanguage);
-                     issue.setReason(translatedReason);
-                 }
-             }
-        }
-        
         Map<Issue, List<LawInfo>> issueLawMap = new HashMap<>();
 
         for (Issue issue : issues) {
-            // 3. 각 쟁점과 관련된 법률 목록을 API로 검색
+            // 2. 번역하기 전, 원본 'type'(한글)으로 먼저 법률을 검색
             List<LawInfo> laws = lawApiClient.searchRelatedLaws(issue.getType(), contract);
 
+            // 3. 검색된 각 법률의 내용을 처리
             laws.forEach(law -> {
                 try {
-                    // 4. 법률의 상세 본문 내용을 API로 조회
                     String lawContent = lawApiClient.fetchLawDetailByApi(law.getLawSerialNumber());
-
                     if (!StringUtils.hasText(lawContent)) {
                         log.warn("법률 '{}'의 상세 내용을 API로 가져오지 못했습니다. 분석을 건너뜁니다.", law.getLawName());
                         return;
                     }
-
-                    // 5. AI를 통해 법률 이름 번역 및 본문 요약/번역
-                    law.setTranslatedLawName(
-                            openAiClient.translateText(law.getLawName(), targetLanguage)
-                    );
-
+                    law.setTranslatedLawName(openAiClient.translateText(law.getLawName(), targetLanguage));
                     String summary = openAiClient.summarizeAndTranslate(lawContent, targetLanguage);
                     law.setTranslatedSummary(summary);
                     law.setContract(contract);
@@ -94,6 +75,15 @@ public class LawService {
                 log.error("DB 저장 실패: {}", e.getRootCause() != null ? e.getRootCause().getMessage() : e.getMessage());
                 throw new RuntimeException("법령 정보 저장 실패", e);
             }
+        }
+
+        // 4. 모든 법률 처리가 끝난 후, 최종적으로 issues 내부 필드들을 번역
+        if (!"Korean".equalsIgnoreCase(targetLanguage) && !"ko".equalsIgnoreCase(targetLanguage)) {
+             for (Issue issue : issues) {
+                 issue.setType(openAiClient.translateText(issue.getType(), targetLanguage));
+                 issue.setReason(openAiClient.translateText(issue.getReason(), targetLanguage));
+                 issue.setEvidence(openAiClient.translateText(issue.getEvidence(), targetLanguage));
+             }
         }
 
         return new LawAnalyzeDto(
