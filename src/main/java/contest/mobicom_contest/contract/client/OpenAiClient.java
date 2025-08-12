@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import contest.mobicom_contest.contract.dto.Issue;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
@@ -121,7 +120,9 @@ public class OpenAiClient {
 
     public String translateText(String text, String targetLanguage) {
         String prompt = String.format("다음 텍스트를 %s로 자연스럽게 번역하세요:\n\n%s", targetLanguage, text);
-        return getGptResponse(prompt);
+        String translated = getGptResponse(prompt);
+
+        return translated.split("\n")[0].trim();
     }
 
 
@@ -142,6 +143,14 @@ public class OpenAiClient {
 
 
     public String summarizeAndTranslate(String text, String targetLanguage) {
+        if (text == null || text.isBlank() ||
+                text.contains("내용을 불러올 수 없") ||
+                text.contains("내용 파싱에 실패")) {
+
+            log.warn("요약 요청 거부: 유효하지 않은 법률 내용");
+            return "이 법률의 상세 내용을 가져오지 못해 요약할 수 없습니다.";
+        }
+
         String prompt = String.format("""
             당신은 법률 문서를 일반인이 이해하기 쉽게 설명하는 전문가입니다.
             아래에 제공된 법률 원문 내용을 바탕으로, 핵심적인 내용을 2-4문장으로 요약하고 %s(으)로 번역해주세요.
