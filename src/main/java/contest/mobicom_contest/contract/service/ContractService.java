@@ -168,6 +168,7 @@ public class ContractService {
             contractRepository.save(contract);
 
             return Map.of(
+                    "contractId", contract.getId(),
                     "originalImage", originalImageUrl,
                     "translatedImage", translatedImageUrl
             );
