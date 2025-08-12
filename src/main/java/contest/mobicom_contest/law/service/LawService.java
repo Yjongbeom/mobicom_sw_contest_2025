@@ -40,15 +40,22 @@ public class LawService {
         Contract contract = contractRepository.findById(contractId)
                 .orElseThrow(() -> new IllegalArgumentException("계약서 없음"));
 
+        log.debug("분석할 OCR 텍스트:\n{}", contract.getOcrText());
+
+
         Member member = contract.getMember();
         String targetLanguage = member.getLanguage();
+
+        log.debug("타겟 언어:\n{}", targetLanguage)
 
         List<Issue> issues = openAiClient.detectUnfairClauses(contract.getOcrText());
         Map<Issue, List<LawInfo>> issueLawMap = new HashMap<>();
 
+        log.debug("발견된 이슈 개수: {}", issues.size());
+
         for (Issue issue : issues) {
             List<LawInfo> laws = lawApiClient.searchRelatedLaws(issue.getType(), contract);
-
+            log.debug("{} 이슈에 대한 법률 개수: {}", issue.getType(), laws.size());
             laws.forEach(law -> {
                 try {
                     String lawContent = fetchLawDetailContent(law.getDetailUrl());
