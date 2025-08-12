@@ -1,5 +1,3 @@
-// OpenAiClient.java 파일의 모든 내용을 지우고 아래 코드를 붙여넣으세요.
-
 package contest.mobicom_contest.contract.client;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -19,7 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-@Slf4j // NEW: 로그 추가
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class OpenAiClient {
@@ -34,7 +32,7 @@ public class OpenAiClient {
     
     private final ObjectMapper mapper = new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-    // NEW: 모델 이름을 상수로 관리하여 변경 용이성 확보
+    // 모델 이름을 상수로 관리하여 변경 용이성 확보
     private static final String GPT_MODEL = "gpt-4o";
 
     public List<Issue> detectUnfairClauses(String text) {
