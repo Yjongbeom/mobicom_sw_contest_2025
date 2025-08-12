@@ -28,6 +28,7 @@ public class OpenAiClient {
     private final RestTemplate restTemplate;
 
     public List<Issue> detectUnfairClauses(String text) throws Exception {
+        String url = openaiApiUrl;
         HttpHeaders headers = new HttpHeaders();
         headers.set("Authorization", "Bearer " + apiKey);
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -49,17 +50,16 @@ public class OpenAiClient {
                 }
               ]
             }
-            """);
+        응답은 JSON만 포함해야 하며 다른 텍스트는 금지됨""");
 
         ObjectNode message2 = mapper.createObjectNode();
         message2.put("role", "user");
         message2.put("content", text);
 
         ObjectNode requestBody = mapper.createObjectNode();
-        // [수정 1] 모델을 gpt-4o로 업그레이드하여 성능 향상
         requestBody.put("model", "gpt-4o");
         requestBody.set("messages", mapper.createArrayNode().add(message1).add(message2));
-        requestBody.put("temperature", 0.2); // 일관된 답변을 위해 temperature 조정
+        requestBody.put("temperature", 0.2);
 
         ObjectNode responseFormat = mapper.createObjectNode();
         responseFormat.put("type", "json_object");
@@ -68,28 +68,75 @@ public class OpenAiClient {
         String requestJson = mapper.writeValueAsString(requestBody);
         HttpEntity<String> entity = new HttpEntity<>(requestJson, headers);
 
-        ResponseEntity<String> response = restTemplate.exchange(openaiApiUrl, HttpMethod.POST, entity, String.class);
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
 
         if (response.getStatusCode() == HttpStatus.OK) {
             JsonNode jsonNode = parseJson(response.getBody());
             return extractIssues(jsonNode);
         } else {
-            throw new Exception("OpenAI 요청 실패: " + response.getStatusCode());
+            throw new Exception("OpenAI 요청 실패");
         }
     }
 
+    private JsonNode parseJson(String responseBody) {
+        ObjectMapper mapper = new ObjectMapper();
+        try {
+            return mapper.readTree(responseBody);
+        } catch (Exception e) {
+            throw new RuntimeException("JSON 파싱 오류", e);
+        }
+    }
+
+    private List<Issue> extractIssues(JsonNode root) {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
+
+        List<Issue> issues = new ArrayList<>();
+        try {
+            JsonNode choices = root.path("choices");
+            if (!choices.isArray() || choices.isEmpty()) return issues;
+
+            String content = choices.get(0).path("message").path("content").asText();
+            if (content == null || content.isEmpty()) return issues;
+
+            content = cleanJsonContent(content);
+
+            JsonNode issuesRoot = mapper.readTree(content);
+            JsonNode issuesNode = issuesRoot.path("issues");
+            if (!issuesNode.isArray()) return issues;
+
+            for (JsonNode issueNode : issuesNode) {
+                Issue issue = mapper.treeToValue(issueNode, Issue.class);
+                issues.add(issue);
+            }
+        } catch (Exception e) {
+        }
+        return issues;
+    }
+
     public String translateText(String text, String targetLanguage) {
-        String prompt = String.format("""
-            당신은 다국어 번역 전문가입니다. 다음 텍스트를 %s(으)로 최대한 자연스럽고 정확하게 번역해주세요.
-            
-            --- 원문 ---
-            %s
-            """, targetLanguage, text);
+        String prompt = String.format("다음 텍스트를 %s로 자연스럽게 번역하세요:\n\n%s", targetLanguage, text);
         return getGptResponse(prompt);
     }
-    
+
+
+    private String cleanJsonContent(String content) {
+        content = content.trim();
+
+        if (content.startsWith("```json")) {
+            return content.substring(7, content.length() - 3).trim();
+        }
+        if (content.startsWith("```")) {
+            return content.substring(3, content.length() - 3).trim();
+        }
+        if (content.startsWith("`") && content.endsWith("`")) {
+            return content.substring(1, content.length() - 1).trim();
+        }
+        return content;
+    }
+
+
     public String summarizeAndTranslate(String text, String targetLanguage) {
-        // [수정 2] AI 환각을 방지하기 위해 프롬프트를 명확하고 구체적으로 변경
         String prompt = String.format("""
             당신은 법률 문서를 일반인이 이해하기 쉽게 설명하는 전문가입니다.
             아래에 제공된 법률 원문 내용을 바탕으로, 핵심적인 내용을 2-4문장으로 요약하고 %s(으)로 번역해주세요.
@@ -98,7 +145,9 @@ public class OpenAiClient {
             --- 법률 원문 ---
             %s
             """, targetLanguage, text);
-        return getGptResponse(prompt);
+
+        String result = getGptResponse(prompt);
+        return result.length() > 500 ? result.substring(0, 500) : result;
     }
 
     private String getGptResponse(String prompt) {
@@ -109,8 +158,7 @@ public class OpenAiClient {
 
             ObjectMapper mapper = new ObjectMapper();
             ObjectNode requestBody = mapper.createObjectNode();
-            // [수정 3] 이 메서드에서 호출하는 모델도 gpt-4o로 통일
-            requestBody.put("model", "gpt-4o"); 
+            requestBody.put("model", "gpt-4o");
 
             ArrayNode messages = mapper.createArrayNode();
             ObjectNode message = mapper.createObjectNode();
@@ -129,48 +177,5 @@ public class OpenAiClient {
         } catch (Exception e) {
             throw new RuntimeException("GPT 처리 실패", e);
         }
-    }
-
-    // 아래는 기존 코드와 동일
-    private JsonNode parseJson(String responseBody) {
-        ObjectMapper mapper = new ObjectMapper();
-        try {
-            return mapper.readTree(responseBody);
-        } catch (Exception e) {
-            throw new RuntimeException("JSON 파싱 오류", e);
-        }
-    }
-
-    private List<Issue> extractIssues(JsonNode root) {
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false); // 알 수 없는 속성은 무시
-        List<Issue> issues = new ArrayList<>();
-        try {
-            JsonNode choices = root.path("choices");
-            if (!choices.isArray() || choices.isEmpty()) return issues;
-            String content = choices.get(0).path("message").path("content").asText();
-            if (content == null || content.isEmpty()) return issues;
-            content = cleanJsonContent(content);
-            JsonNode issuesRoot = mapper.readTree(content);
-            JsonNode issuesNode = issuesRoot.path("issues");
-            if (!issuesNode.isArray()) return issues;
-            for (JsonNode issueNode : issuesNode) {
-                issues.add(mapper.treeToValue(issueNode, Issue.class));
-            }
-        } catch (Exception e) {
-            // 로깅 추가
-        }
-        return issues;
-    }
-
-    private String cleanJsonContent(String content) {
-        content = content.trim();
-        if (content.startsWith("```json")) {
-            return content.substring(7, content.length() - 3).trim();
-        }
-        if (content.startsWith("```")) {
-            return content.substring(3, content.length() - 3).trim();
-        }
-        return content;
     }
 }
