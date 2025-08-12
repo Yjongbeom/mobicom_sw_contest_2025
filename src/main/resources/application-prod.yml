@@ -6,11 +6,15 @@ upstage:
   api:
     key: ${UPSTAGE_KEY}
     url: ${UPSTAGE_URL}
+
 law:
   api:
     key: ${LAW_KEY}
-    url: ${LAW_URL}
     oc: ${LAW_OC}
+    url:
+      search: http://www.law.go.kr/DRF/lawSearch.do
+      service: http://www.law.go.kr/DRF/lawService.do
+
 cloud:
   aws:
     credentials:
