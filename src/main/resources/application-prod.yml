@@ -10,6 +10,7 @@ law:
   api:
     key: ${LAW_KEY}
     url: ${LAW_URL}
+    oc: ${LAW_OC}
 cloud:
   aws:
     credentials:
