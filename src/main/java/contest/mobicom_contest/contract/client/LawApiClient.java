@@ -5,19 +5,21 @@ import contest.mobicom_contest.law.model.LawInfo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
-
-import javax.xml.parsers.DocumentBuilderFactory;
-import org.w3c.dom.*;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
 import org.xml.sax.InputSource;
 
+import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.StringReader;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Component
@@ -51,85 +53,92 @@ public class LawApiClient {
         List<LawInfo> laws = new ArrayList<>();
         String query = QUERY_MAP.getOrDefault(issueType, issueType);
 
-        String encodedKey = apiKey;
-
         for (String target : TARGET_MAP.getOrDefault(issueType, List.of("law"))) {
             try {
                 String url = lawApiUrl
-                        + "?ServiceKey=" + encodedKey
+                        + "?ServiceKey=" + apiKey
                         + "&target=" + target
                         + "&query=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
-                        + "&numOfRows=10&pageNo=1";
-
-                log.debug("법령 API 호출: {}", url);
-
-                URI uri = URI.create(url);
-                RestTemplate restTemplate = createRestTemplate();
-                String xmlResponse = restTemplate.getForObject(uri, String.class);
-
-
-                log.debug("XML 응답(앞 300자): {}", xmlResponse != null ? xmlResponse.substring(0, Math.min(300, xmlResponse.length())) : "null");
-
-                if (xmlResponse != null && !xmlResponse.contains("SERVICE_KEY_IS_NOT_REGISTERED_ERROR")) {
-                    laws.addAll(parseXml(xmlResponse, contract));
-                } else {
-                    log.warn("API 오류 응답: {}", xmlResponse);
+                        + "&type=XML"
+                        + "&numOfRows=3";
+                
+                log.info("법령 목록 API 호출: {}", url);
+                RestTemplate restTemplate = new RestTemplate();
+                String xmlResponse = restTemplate.getForObject(URI.create(url), String.class);
+                
+                if (xmlResponse != null) {
+                    laws.addAll(parseLawSearchXml(xmlResponse, contract));
                 }
-
             } catch (Exception e) {
-                log.error("법령 조회 실패 (target={}, 이슈={}): {}", target, issueType, e.getMessage());
+                log.error("법령 목록 조회 실패 (target={}, 이슈={}): {}", target, issueType, e.getMessage());
             }
         }
-
         return laws;
     }
 
-    private RestTemplate createRestTemplate() {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(5000);
-        factory.setReadTimeout(5000);
+    public String fetchLawDetailByApi(String lawSerialNumber) {
+        if (lawSerialNumber == null || lawSerialNumber.isBlank()) {
+            log.warn("법령일련번호가 없어 상세 내용을 조회할 수 없습니다.");
+            return "";
+        }
+        try {
+            // API 명세에 따라 요청 URL을 'lawService.do'로 변경
+            String url = lawApiUrl.replace("/lawSearch.do", "/lawService.do")
+                    + "?ServiceKey=" + apiKey
+                    + "&target=law"
+                    + "&MST=" + lawSerialNumber // 'ID' 대신 'MST'(법령일련번호) 사용
+                    + "&type=XML";
 
-        RestTemplate restTemplate = new RestTemplate(factory);
-        return restTemplate;
+            log.info("법령 본문 API 호출: {}", url);
+            RestTemplate restTemplate = new RestTemplate();
+            String xmlResponse = restTemplate.getForObject(URI.create(url), String.class);
+
+            if (xmlResponse != null) {
+                // **수정**: 본문 파싱 전용 메서드 호출
+                return parseLawDetailXml(xmlResponse);
+            }
+        } catch (Exception e) {
+            log.error("법령 본문 조회 실패 (MST={}): {}", lawSerialNumber, e.getMessage());
+        }
+        return "";
     }
 
-    private List<LawInfo> parseXml(String xml, Contract contract) throws Exception {
-        Document doc = DocumentBuilderFactory.newInstance()
-                .newDocumentBuilder()
-                .parse(new InputSource(new StringReader(xml)));
-
-        String resultCode = doc.getElementsByTagName("resultCode").item(0).getTextContent();
-        if (!"00".equals(resultCode)) {
-            throw new Exception("API 오류: " + doc.getElementsByTagName("resultMsg").item(0).getTextContent());
-        }
-
-        List<LawInfo> laws = new ArrayList<>();
+    private List<LawInfo> parseLawSearchXml(String xml, Contract contract) throws Exception {
+        Document doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(new InputSource(new StringReader(xml)));
         NodeList nodes = doc.getElementsByTagName("law");
+        List<LawInfo> laws = new ArrayList<>();
 
         for (int i = 0; i < nodes.getLength(); i++) {
             Element elem = (Element) nodes.item(i);
-
-            String lawName = getElementText(elem, "법령명한글");
-            String pubNo = getElementText(elem, "공포번호");
-            String detailUrl = getElementText(elem, "법령상세링크");
-
-            if (lawName == null || pubNo == null || detailUrl == null) {
-                System.err.println("⚠️ 필수 필드 누락 - 법령명: " + lawName);
-                continue;
-            }
+            
+            // **핵심 변경**: 법령 본문 조회에 필요한 '법령일련번호' 값을 추출합니다.
+            String lawSerialNumber = getElementText(elem, "법령일련번호");
 
             laws.add(LawInfo.builder()
-                    .lawName(lawName)
-                    .referenceNumber(pubNo)
-                    .detailUrl(detailUrl)
+                    .lawName(getElementText(elem, "법령명한글"))
+                    .lawSerialNumber(lawSerialNumber) // LawInfo 객체에 법령일련번호 저장
+                    .referenceNumber(getElementText(elem, "공포번호"))
+                    .detailUrl(getElementText(elem, "법령상세링크")) // 웹페이지 링크도 일단 저장
                     .contract(contract)
                     .build());
         }
         return laws;
     }
 
+    private String parseLawDetailXml(String xml) throws Exception {
+        Document doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(new InputSource(new StringReader(xml)));
+        // API 명세의 '조문내용' 태그를 모두 찾습니다.
+        NodeList contentNodes = doc.getElementsByTagName("조문내용");
+        StringBuilder contentBuilder = new StringBuilder();
+        
+        for (int i = 0; i < contentNodes.getLength(); i++) {
+            contentBuilder.append(contentNodes.item(i).getTextContent()).append("\n\n");
+        }
+        return contentBuilder.toString();
+    }
+
     private String getElementText(Element elem, String tagName) {
         NodeList nodes = elem.getElementsByTagName(tagName);
-        return nodes.getLength() > 0 ? nodes.item(0).getTextContent().trim() : null;
+        return (nodes.getLength() > 0) ? nodes.item(0).getTextContent().trim() : null;
     }
 }
