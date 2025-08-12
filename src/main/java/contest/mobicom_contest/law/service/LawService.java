@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.ArrayList; // issues 필드 초기화를 위해 추가
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,16 +38,18 @@ public class LawService {
     private final LawApiClient lawApiClient;
     private final ContractRepository contractRepository;
 
-    public LawAnalyzeDto analyzeLegalIssues(Long contractId) throws Exception {
+    public LawAnalyzeDto analyzeLegalIssues(Long contractId) {
         Contract contract = contractRepository.findById(contractId)
                 .orElseThrow(() -> new IllegalArgumentException("계약서 없음"));
 
         Member member = contract.getMember();
 
-        String targetLanguage = member.getLanguage();
-        if (!StringUtils.hasText(targetLanguage)) {
+
+        String languageFromMember = member.getLanguage();
+        final String targetLanguage = StringUtils.hasText(languageFromMember) ? languageFromMember : "English";
+        
+        if (!StringUtils.hasText(languageFromMember)) {
             log.warn("Member ID {}의 언어 설정이 비어있어 기본값 'English'를 사용합니다.", member.getId());
-            targetLanguage = "English";
         }
         log.info("분석 대상 언어: {}", targetLanguage);
 
@@ -98,35 +101,42 @@ public class LawService {
             }
         }
 
+        List<LawInfoDTO> allLawInfos = issueLawMap.values().stream()
+                .flatMap(List::stream)
+                .map(LawInfoDTO::new)
+                .collect(Collectors.toList());
+
+        // Lombok @Builder 경고를 해결하기 위해 DTO 생성 방식을 new 키워드로 명시합니다.
+        // 또는 LawAnalyzeDto에 @Builder.Default를 추가합니다.
         return new LawAnalyzeDto(
                 contract.getContractId(),
                 issues,
-                issueLawMap.values().stream()
-                        .flatMap(List::stream)
-                        .map(LawInfoDTO::new)
-                        .collect(Collectors.toList())
+                allLawInfos
         );
     }
 
-    private String fetchLawDetailContent(String detailPath) throws Exception {
+    private String fetchLawDetailContent(String detailPath) {
         if (detailPath == null || detailPath.isBlank()) {
-            throw new IllegalArgumentException("법령 상세 경로가 유효하지 않습니다.");
+            log.warn("법령 상세 경로가 유효하지 않습니다.");
+            return "";
         }
 
         String detailUrl = "https://www.law.go.kr" + detailPath;
         RestTemplate restTemplate = new RestTemplate();
-        ResponseEntity<String> response = restTemplate.getForEntity(detailUrl, String.class);
-
-        if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-            return parseLawContent(response.getBody());
+        try {
+            ResponseEntity<String> response = restTemplate.getForEntity(detailUrl, String.class);
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                return parseLawContent(response.getBody());
+            }
+            log.warn("법령 상세 조회 실패: URL={}, Status={}", detailUrl, response.getStatusCode());
+        } catch (Exception e) {
+            log.error("법령 상세 조회 중 예외 발생: URL={}", detailUrl, e);
         }
-        log.warn("법령 상세 조회 실패: URL={}, Status={}", detailUrl, response.getStatusCode());
-        return "";
+        return ""; // 실패 시 빈 문자열 반환
     }
 
     private String parseLawContent(String html) {
         Document doc = Jsoup.parse(html);
-        // ### KEY FIX ###
         Elements contentElements = doc.select("#contentBody"); 
         
         if (contentElements.isEmpty()) {
@@ -134,7 +144,6 @@ public class LawService {
         }
         return contentElements.eachText().stream().collect(Collectors.joining("\n"));
     }
-
 
     public List<LawInfo> getLawsByContractId(Long contractId) {
         return lawInfoRepository.findByContractContractId(contractId);
