@@ -110,6 +110,9 @@ public class OpenAiClient {
                 issues.add(issue);
             }
         } catch (Exception e) {
+            log.error("JSON 파싱 실패: {}", e.getMessage());
+            log.debug("원본 응답: {}", root.toString());
+            throw new RuntimeException("이슈 추출 실패", e);
         }
         return issues;
     }
