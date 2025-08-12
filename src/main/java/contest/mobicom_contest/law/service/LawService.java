@@ -10,21 +10,25 @@ import contest.mobicom_contest.law.dto.LawInfoDTO;
 import contest.mobicom_contest.law.model.LawInfo;
 import contest.mobicom_contest.law.model.LawInfoRepository;
 import contest.mobicom_contest.member.model.Member;
+
+// [추가] WebDriverManager import
+import io.github.bonigarcia.wdm.WebDriverManager;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.openqa.selenium.By;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.chrome.ChromeOptions;
+import org.openqa.selenium.support.ui.ExpectedConditions;
+import org.openqa.selenium.support.ui.WebDriverWait;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -80,7 +84,6 @@ public class LawService {
                 List<LawInfo> validLaws = laws.stream()
                         .filter(law -> law.getTranslatedSummary() != null && !law.getTranslatedSummary().isBlank())
                         .collect(Collectors.toList());
-
                 lawInfoRepository.saveAll(validLaws);
                 issueLawMap.put(issue, validLaws);
             } catch (DataIntegrityViolationException e) {
@@ -99,74 +102,51 @@ public class LawService {
         );
     }
 
-    private String fetchLawDetailContent(String detailPath) throws Exception {
+    private String fetchLawDetailContent(String detailPath) {
         if (detailPath == null || detailPath.isBlank()) {
             return "";
         }
 
-        RestTemplate restTemplate = new RestTemplate();
-        String framePageUrl = "https://www.law.go.kr" + detailPath;
-
-        log.info("1단계 접속 시도: {}", framePageUrl);
-        ResponseEntity<String> frameResponse = restTemplate.getForEntity(framePageUrl, String.class);
-        if (frameResponse.getStatusCode() != HttpStatus.OK) {
-            log.error("껍데기 페이지 접속 실패: {}", frameResponse.getStatusCode());
-            return "";
-        }
-
-        Document frameDoc = Jsoup.parse(frameResponse.getBody());
-        Element iframe = frameDoc.selectFirst("iframe#lawService");
-        if (iframe == null) {
-            log.error("껍데기 페이지에서 iframe을 찾지 못했습니다.");
-            return "";
-        }
-
-        String iframeSrc = iframe.attr("src");
-        if (iframeSrc.isBlank()) {
-            log.error("iframe에 src 속성이 없습니다.");
-            return "";
-        }
-
-        String realContentUrl;
-        if (iframeSrc.startsWith("http")) {
-            realContentUrl = iframeSrc;
-        } else {
-            realContentUrl = "https://www.law.go.kr" + iframeSrc;
-        }
-
-        // ================== [KEY FIX] ==================
-        // 2단계 접속 시, 실제 브라우저처럼 보이도록 HTTP 헤더를 추가합니다.
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36");
-        headers.set("Referer", framePageUrl); // '이전 페이지(액자 페이지)'에서 접속한 것처럼 보이게 함
-
-        HttpEntity<String> entity = new HttpEntity<>(headers);
-
-        log.info("2단계 접속 시도 (진짜 본문): {}", realContentUrl);
-        // restTemplate.getForEntity 대신 exchange를 사용하여 헤더를 포함한 요청을 보냅니다.
-        ResponseEntity<String> contentResponse = restTemplate.exchange(realContentUrl, HttpMethod.GET, entity, String.class);
+        // ================== [최종 수정] ==================
+        // 1. WebDriverManager가 자동으로 chromedriver를 다운로드하고 설정합니다.
+        WebDriverManager.chromedriver().setup();
         // ===============================================
 
-        if (contentResponse.getStatusCode() == HttpStatus.OK) {
-            return parseLawContent(contentResponse.getBody());
-        }
+        ChromeOptions options = new ChromeOptions();
+        options.addArguments("--headless");
+        options.addArguments("--no-sandbox");
+        options.addArguments("--disable-dev-shm-usage");
+        options.addArguments("--disable-gpu");
+        // User-Agent 추가 (봇으로 인식되는 것을 방지)
+        options.addArguments("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36");
 
-        throw new Exception("법령 본문 페이지 조회 실패: " + contentResponse.getStatusCode());
-    }
+        WebDriver driver = null;
+        try {
+            driver = new ChromeDriver(options);
+            WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(10));
 
-    private String parseLawContent(String html) {
-        if (html == null || html.isBlank()) {
+            String pageUrl = "https://www.law.go.kr" + detailPath;
+            log.info("Selenium으로 페이지 접속: {}", pageUrl);
+            driver.get(pageUrl);
+
+            wait.until(ExpectedConditions.frameToBeAvailableAndSwitchToIt(By.id("lawService")));
+            wait.until(ExpectedConditions.presenceOfElementLocated(By.cssSelector("#contentBody")));
+
+            Document doc = Jsoup.parse(driver.getPageSource());
+            Elements contentElements = doc.select("#contentBody");
+
+            return contentElements.text();
+
+        } catch (Exception e) {
+            log.error("Selenium 크롤링 중 오류 발생: {}", e.getMessage());
             return "";
+        } finally {
+            if (driver != null) {
+                driver.quit();
+            }
         }
-        Document doc = Jsoup.parse(html);
-        Elements contentElements = doc.select("#contentBody");
-        if (contentElements.isEmpty()) {
-            contentElements = doc.select(".lawcon");
-        }
-        return contentElements.text();
     }
 
-    // Other methods remain the same
     public List<LawInfo> getLawsByContractId(Long contractId) {
         return lawInfoRepository.findByContractContractId(contractId);
     }
