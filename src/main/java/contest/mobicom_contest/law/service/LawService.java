@@ -42,7 +42,6 @@ public class LawService {
                 .orElseThrow(() -> new IllegalArgumentException("계약서 없음"));
 
         Member member = contract.getMember();
-        // 람다에서 사용하기 위해 final 변수로 선언
         final String targetLanguage = (member.getLanguage() == null || member.getLanguage().isBlank())
                 ? "English"
                 : member.getLanguage();
@@ -67,11 +66,6 @@ public class LawService {
                     );
 
                     String summary = openAiClient.summarizeAndTranslate(lawContent, targetLanguage);
-                    int maxLen = 3000;
-                    if (summary.length() > maxLen) {
-                        summary = summary.substring(0, maxLen) + "... [truncated]";
-                        log.warn("요약 내용이 {}자를 초과하여 잘렸습니다.", maxLen);
-                    }
                     law.setTranslatedSummary(summary);
                     law.setContract(contract);
                 } catch (Exception e) {
@@ -107,11 +101,9 @@ public class LawService {
             return "";
         }
 
-        // === [핵심 수정] 2단계 스크래핑 로직 ===
         RestTemplate restTemplate = new RestTemplate();
         String framePageUrl = "https://www.law.go.kr" + detailPath;
 
-        // 1단계: <iframe>이 있는 껍데기(액자) 페이지에 접속
         log.info("1단계 접속 시도: {}", framePageUrl);
         ResponseEntity<String> frameResponse = restTemplate.getForEntity(framePageUrl, String.class);
         if (frameResponse.getStatusCode() != HttpStatus.OK) {
@@ -119,22 +111,28 @@ public class LawService {
             return "";
         }
 
-        // 껍데기 페이지에서 <iframe> 태그의 src 속성값(진짜 주소) 추출
         Document frameDoc = Jsoup.parse(frameResponse.getBody());
         Element iframe = frameDoc.selectFirst("iframe#lawService");
         if (iframe == null) {
             log.error("껍데기 페이지에서 iframe을 찾지 못했습니다.");
             return "";
         }
-        String realContentPath = iframe.attr("src");
-        if (realContentPath == null || realContentPath.isBlank()) {
+
+        String iframeSrc = iframe.attr("src");
+        if (iframeSrc.isBlank()) {
             log.error("iframe에 src 속성이 없습니다.");
             return "";
         }
 
-        String realContentUrl = "https://www.law.go.kr" + realContentPath;
+        String realContentUrl;
+        // iframe의 src가 이미 "http"로 시작하는 완전한 URL인지 확인
+        if (iframeSrc.startsWith("http")) {
+            realContentUrl = iframeSrc;
+        } else {
+            realContentUrl = "https://www.law.go.kr" + iframeSrc;
+        }
+        // ===============================================
 
-        // 2단계: 추출한 진짜 주소로 다시 접속하여 본문(그림) 스크래핑
         log.info("2단계 접속 시도 (진짜 본문): {}", realContentUrl);
         ResponseEntity<String> contentResponse = restTemplate.getForEntity(realContentUrl, String.class);
         if (contentResponse.getStatusCode() == HttpStatus.OK) {
@@ -146,16 +144,13 @@ public class LawService {
 
     private String parseLawContent(String html) {
         Document doc = Jsoup.parse(html);
-        // 이제 진짜 본문 페이지에 접속했으므로 '#contentBody' 선택자가 동작함
         Elements contentElements = doc.select("#contentBody");
-        if(contentElements.isEmpty()){
-            // 만약을 대비한 대체 선택자
-            contentElements = doc.select(".lawcon");
+        if (contentElements.isEmpty()) {
+            contentElements = doc.select(".lawcon"); // 만약을 대비한 대체 선택자
         }
         return contentElements.text();
     }
 
-    // 나머지 메서드는 기존과 동일
     public List<LawInfo> getLawsByContractId(Long contractId) {
         return lawInfoRepository.findByContractContractId(contractId);
     }
