@@ -31,6 +31,8 @@ public class LawInfo {
     @Column(columnDefinition = "TEXT", nullable = false)
     private String translatedSummary;
 
+    private String lawSerialNumber; 
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "contract_id")
     @JsonBackReference
