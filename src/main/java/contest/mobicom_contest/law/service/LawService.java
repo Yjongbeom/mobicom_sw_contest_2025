@@ -46,7 +46,7 @@ public class LawService {
         Member member = contract.getMember();
         String targetLanguage = member.getLanguage();
 
-        log.debug("타겟 언어:\n{}", targetLanguage)
+        log.debug("타겟 언어:\n{}", targetLanguage);
 
         List<Issue> issues = openAiClient.detectUnfairClauses(contract.getOcrText());
         Map<Issue, List<LawInfo>> issueLawMap = new HashMap<>();
