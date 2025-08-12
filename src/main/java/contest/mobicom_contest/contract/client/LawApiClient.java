@@ -37,23 +37,21 @@ public class LawApiClient {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    // ... (TARGET_MAP, QUERY_MAP은 기존과 동일)
     private static final Map<String, List<String>> TARGET_MAP = Map.of(
-            "퇴직금", List.of("law"),
-            "최저임금", List.of("law"),
-            "근로시간", List.of("law"),
-            "부당해고", List.of("law"),
-            "계약해지", List.of("law"),
-            "기타", List.of("law")
+            "퇴직금", List.of("law"), "최저임금", List.of("law"),
+            "근로시간", List.of("law"), "부당해고", List.of("law"),
+            "계약해지", List.of("law"), "기타", List.of("law")
     );
-
     private static final Map<String, String> QUERY_MAP = Map.of(
-            "최저임금", "최저임금법",
-            "근로시간", "근로기준법",
-            "퇴직금", "근로자퇴직급여 보장법",
-            "부당해고", "근로기준법",
+            "최저임금", "최저임금법", "근로시간", "근로기준법",
+            "퇴직금", "근로자퇴직급여 보장법", "부당해고", "근로기준법",
             "계약해지", "근로기준법"
     );
 
+    /**
+     * 1단계: 법령 목록 검색 API 호출
+     */
     public List<LawInfo> searchRelatedLaws(String issueType, Contract contract) {
         String query = QUERY_MAP.getOrDefault(issueType, issueType);
         List<LawInfo> allLaws = new ArrayList<>();
@@ -61,12 +59,9 @@ public class LawApiClient {
         for (String target : TARGET_MAP.getOrDefault(issueType, List.of("law"))) {
             try {
                 String url = lawSearchApiUrl
-                        + "?ServiceKey=" + apiKey
-                        + "&OC=" + oc
-                        + "&target=" + target
+                        + "?ServiceKey=" + apiKey + "&OC=" + oc + "&target=" + target
                         + "&query=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
-                        + "&type=JSON"
-                        + "&numOfRows=3";
+                        + "&type=JSON" + "&numOfRows=3";
 
                 log.info("법령 목록 API 호출: {}", url);
                 String jsonResponse = restTemplate.getForObject(URI.create(url), String.class);
@@ -81,17 +76,15 @@ public class LawApiClient {
         return allLaws;
     }
 
+    /**
+     * 2단계: 법령 본문 조회 API 호출 (전체 조문 목록 획득)
+     */
     public String fetchLawDetailByApi(String lawSerialNumber) {
-        if (lawSerialNumber == null || lawSerialNumber.isBlank()) {
-            return "";
-        }
+        if (lawSerialNumber == null || lawSerialNumber.isBlank()) return "";
         try {
             String url = lawServiceApiUrl
-                    + "?ServiceKey=" + apiKey
-                    + "&OC=" + oc
-                    + "&target=law"
-                    + "&MST=" + lawSerialNumber
-                    + "&type=JSON";
+                    + "?ServiceKey=" + apiKey + "&OC=" + oc + "&target=law"
+                    + "&MST=" + lawSerialNumber + "&type=JSON";
 
             log.info("법령 본문 API 호출: {}", url);
             String jsonResponse = restTemplate.getForObject(URI.create(url), String.class);
@@ -105,15 +98,10 @@ public class LawApiClient {
         return "";
     }
 
-    /**
-     * [최종 수정] 법령 목록 검색 결과를 파싱하는 메서드
-     */
     private List<LawInfo> parseLawSearchJson(String json, Contract contract) throws Exception {
         JsonNode root = objectMapper.readTree(json);
-        // [핵심 수정] 실제 JSON 응답 구조에 맞게 경로를 수정합니다.
         JsonNode lawNodes = root.path("LawSearch").path("law");
         List<LawInfo> laws = new ArrayList<>();
-
         if (lawNodes.isArray()) {
             for (JsonNode node : lawNodes) {
                 laws.add(LawInfo.builder()
@@ -124,35 +112,45 @@ public class LawApiClient {
                         .contract(contract)
                         .build());
             }
-        } else {
-            log.warn("API 응답에서 법률 목록('LawSearch.law')을 찾을 수 없습니다.");
         }
         return laws;
     }
-
+    
+    /**
+     * [최종 수정] 법령 기본정보 API 응답에서 '조문' 목록을 파싱하여 전체 텍스트로 조합합니다.
+     */
     private String parseLawDetailJson(String json) throws Exception {
         JsonNode root = objectMapper.readTree(json);
         StringBuilder contentBuilder = new StringBuilder();
 
-        // 조문 내용 추출 (API 응답 필드 이름 '조문' 사용)
-        JsonNode articleNodes = root.path("조문");
+        // [핵심] API 응답의 최상위 키가 '법령'이므로 경로를 수정합니다.
+        JsonNode lawMainNode = root.path("법령");
+        
+        // 조문(article) 목록을 순회합니다.
+        JsonNode articleNodes = lawMainNode.path("조문");
         if (articleNodes.isArray()) {
             for (JsonNode article : articleNodes) {
-                contentBuilder.append(article.path("조문제목").asText()).append("\n");
-                contentBuilder.append(article.path("조문내용").asText().replaceAll("<br/>", "\n")).append("\n\n");
+                contentBuilder.append("\n--- ").append(article.path("조문제목").asText()).append(" ---\n");
+                contentBuilder.append(stripHtmlTags(article.path("조문내용").asText())).append("\n");
 
-                // 항 내용 추출 (API 응답 필드 이름 '항' 사용)
+                // 항(clause) 목록을 순회합니다.
                 JsonNode clauseNodes = article.path("항");
                 if (clauseNodes.isArray()) {
                     for (JsonNode clause : clauseNodes) {
-                        contentBuilder.append(clause.path("항내용").asText().replaceAll("<br/>", "\n")).append("\n");
+                        contentBuilder.append(stripHtmlTags(clause.path("항내용").asText())).append("\n");
                     }
                 }
-                contentBuilder.append("\n");
             }
         } else {
-            log.warn("API 응답에서 조문 목록('조문')을 찾을 수 없습니다.");
+             log.warn("API 응답에서 조문 목록('법령.조문')을 찾을 수 없습니다.");
         }
+        
         return contentBuilder.toString();
+    }
+
+    // HTML 태그를 제거하는 간단한 헬퍼 메서드
+    private String stripHtmlTags(String htmlText) {
+        if (htmlText == null) return "";
+        return htmlText.replaceAll("<br/>", "\n").replaceAll("<[^>]*>", "");
     }
 }
