@@ -14,7 +14,6 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -26,13 +25,13 @@ public class LawApiClient {
     @Value("${law.api.key}")
     private String apiKey;
 
-    @Value("${law.api.oc}") // application.properties에 OC 값 추가 (예: sapphire_5)
+    @Value("${law.api.oc}")
     private String oc;
 
-    @Value("${law.api.url.search}") // 목록 검색 API URL (예: http://www.law.go.kr/DRF/lawSearch.do)
+    @Value("${law.api.url.search}")
     private String lawSearchApiUrl;
 
-    @Value("${law.api.url.service}") // 본문 조회 API URL (예: http://www.law.go.kr/DRF/lawService.do)
+    @Value("${law.api.url.service}")
     private String lawServiceApiUrl;
 
     private final RestTemplate restTemplate;
@@ -55,9 +54,6 @@ public class LawApiClient {
             "계약해지", "근로기준법"
     );
 
-    /**
-     * 법령 목록 조회 JSON API를 호출합니다.
-     */
     public List<LawInfo> searchRelatedLaws(String issueType, Contract contract) {
         String query = QUERY_MAP.getOrDefault(issueType, issueType);
         List<LawInfo> allLaws = new ArrayList<>();
@@ -69,7 +65,7 @@ public class LawApiClient {
                         + "&OC=" + oc
                         + "&target=" + target
                         + "&query=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
-                        + "&type=JSON" // 응답 타입을 JSON으로 변경
+                        + "&type=JSON"
                         + "&numOfRows=3";
 
                 log.info("법령 목록 API 호출: {}", url);
@@ -85,9 +81,6 @@ public class LawApiClient {
         return allLaws;
     }
 
-    /**
-     * 법령 본문 조회 JSON API를 호출하여 법률의 전체 내용을 가져옵니다.
-     */
     public String fetchLawDetailByApi(String lawSerialNumber) {
         if (lawSerialNumber == null || lawSerialNumber.isBlank()) {
             return "";
@@ -97,7 +90,7 @@ public class LawApiClient {
                     + "?ServiceKey=" + apiKey
                     + "&OC=" + oc
                     + "&target=law"
-                    + "&MST=" + lawSerialNumber // 법령일련번호(MST) 사용
+                    + "&MST=" + lawSerialNumber
                     + "&type=JSON";
 
             log.info("법령 본문 API 호출: {}", url);
@@ -112,9 +105,13 @@ public class LawApiClient {
         return "";
     }
 
+    /**
+     * [최종 수정] 법령 목록 검색 결과를 파싱하는 메서드
+     */
     private List<LawInfo> parseLawSearchJson(String json, Contract contract) throws Exception {
         JsonNode root = objectMapper.readTree(json);
-        JsonNode lawNodes = root.path("lawSearchList");
+        // [핵심 수정] 실제 JSON 응답 구조에 맞게 경로를 수정합니다.
+        JsonNode lawNodes = root.path("LawSearch").path("law");
         List<LawInfo> laws = new ArrayList<>();
 
         if (lawNodes.isArray()) {
@@ -127,6 +124,8 @@ public class LawApiClient {
                         .contract(contract)
                         .build());
             }
+        } else {
+            log.warn("API 응답에서 법률 목록('LawSearch.law')을 찾을 수 없습니다.");
         }
         return laws;
     }
@@ -135,22 +134,24 @@ public class LawApiClient {
         JsonNode root = objectMapper.readTree(json);
         StringBuilder contentBuilder = new StringBuilder();
 
-        // 조문 내용 추출
-        JsonNode joContentNodes = root.path("조문");
-        if (joContentNodes.isArray()) {
-            for (JsonNode jo : joContentNodes) {
-                contentBuilder.append(jo.path("조문제목").asText()).append("\n");
-                contentBuilder.append(jo.path("조문내용").asText().replaceAll("<br/>", "\n")).append("\n\n");
+        // 조문 내용 추출 (API 응답 필드 이름 '조문' 사용)
+        JsonNode articleNodes = root.path("조문");
+        if (articleNodes.isArray()) {
+            for (JsonNode article : articleNodes) {
+                contentBuilder.append(article.path("조문제목").asText()).append("\n");
+                contentBuilder.append(article.path("조문내용").asText().replaceAll("<br/>", "\n")).append("\n\n");
 
-                // 항 내용 추출
-                JsonNode hangNodes = jo.path("항");
-                if(hangNodes.isArray()){
-                    for(JsonNode hang : hangNodes){
-                        contentBuilder.append(hang.path("항내용").asText().replaceAll("<br/>", "\n")).append("\n");
+                // 항 내용 추출 (API 응답 필드 이름 '항' 사용)
+                JsonNode clauseNodes = article.path("항");
+                if (clauseNodes.isArray()) {
+                    for (JsonNode clause : clauseNodes) {
+                        contentBuilder.append(clause.path("항내용").asText().replaceAll("<br/>", "\n")).append("\n");
                     }
                 }
                 contentBuilder.append("\n");
             }
+        } else {
+            log.warn("API 응답에서 조문 목록('조문')을 찾을 수 없습니다.");
         }
         return contentBuilder.toString();
     }
