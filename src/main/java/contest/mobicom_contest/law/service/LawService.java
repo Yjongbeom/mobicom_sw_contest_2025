@@ -107,6 +107,13 @@ public class LawService {
         ResponseEntity<String> response = restTemplate.getForEntity(detailUrl, String.class);
 
         if (response.getStatusCode() == HttpStatus.OK) {
+            String html = response.getBody();
+
+            // HTML 구조 로깅 (디버깅용)
+            log.debug("법령 상세 HTML (앞 500자): {}",
+                    html != null && html.length() > 500 ?
+                            html.substring(0, 500) : html);
+
             return parseLawContent(response.getBody());
         }
         throw new Exception("법령 상세 조회 실패: " + response.getStatusCode());
