@@ -18,6 +18,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.HashMap;
@@ -41,7 +42,13 @@ public class LawService {
                 .orElseThrow(() -> new IllegalArgumentException("계약서 없음"));
 
         Member member = contract.getMember();
+
         String targetLanguage = member.getLanguage();
+        if (!StringUtils.hasText(targetLanguage)) {
+            log.warn("Member ID {}의 언어 설정이 비어있어 기본값 'English'를 사용합니다.", member.getId());
+            targetLanguage = "English";
+        }
+        log.info("분석 대상 언어: {}", targetLanguage);
 
         List<Issue> issues = openAiClient.detectUnfairClauses(contract.getOcrText());
         Map<Issue, List<LawInfo>> issueLawMap = new HashMap<>();
@@ -53,31 +60,42 @@ public class LawService {
                 try {
                     String lawContent = fetchLawDetailContent(law.getDetailUrl());
 
+                    log.info("법률 [{}]의 상세 내용을 스크래핑했습니다. 내용 길이: {} 자", law.getLawName(), lawContent.length());
+                    if (!StringUtils.hasText(lawContent)) {
+                        log.warn("법률 [{}]의 상세 내용이 비어있어 AI 분석을 건너뜁니다. URL: {}", law.getLawName(), law.getDetailUrl());
+                        return; 
+                    }
+
                     law.setTranslatedLawName(
                             openAiClient.translateText(law.getLawName(), targetLanguage)
                     );
 
                     String summary = openAiClient.summarizeAndTranslate(lawContent, targetLanguage);
+                    
                     int maxLen = 3000;
                     if (summary.length() > maxLen) {
                         summary = summary.substring(0, maxLen) + "... [truncated]";
                         log.warn("요약 내용이 {}자를 초과하여 잘렸습니다.", maxLen);
                     }
+
                     law.setTranslatedSummary(summary);
                     law.setContract(contract);
+
                 } catch (Exception e) {
-                    log.error("법령 상세 조회 실패: {}", e.getMessage());
+                    log.error("법령 상세 정보 처리 중 예외 발생: {}", e.getMessage(), e);
                 }
             });
 
             try {
-                lawInfoRepository.saveAll(laws);
+                List<LawInfo> validLaws = laws.stream()
+                                              .filter(l -> StringUtils.hasText(l.getTranslatedSummary()))
+                                              .collect(Collectors.toList());
+                lawInfoRepository.saveAll(validLaws);
+                issueLawMap.put(issue, validLaws);
             } catch (DataIntegrityViolationException e) {
-                log.error("DB 저장 실패: {}", e.getRootCause().getMessage());
+                log.error("DB 저장 실패: {}", e.getRootCause() != null ? e.getRootCause().getMessage() : e.getMessage(), e);
                 throw new RuntimeException("법령 정보 저장 실패", e);
             }
-
-            issueLawMap.put(issue, laws);
         }
 
         return new LawAnalyzeDto(
@@ -85,7 +103,7 @@ public class LawService {
                 issues,
                 issueLawMap.values().stream()
                         .flatMap(List::stream)
-                        .map(LawInfoDTO::new) //
+                        .map(LawInfoDTO::new)
                         .collect(Collectors.toList())
         );
     }
@@ -99,15 +117,21 @@ public class LawService {
         RestTemplate restTemplate = new RestTemplate();
         ResponseEntity<String> response = restTemplate.getForEntity(detailUrl, String.class);
 
-        if (response.getStatusCode() == HttpStatus.OK) {
+        if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
             return parseLawContent(response.getBody());
         }
-        throw new Exception("법령 상세 조회 실패: " + response.getStatusCode());
+        log.warn("법령 상세 조회 실패: URL={}, Status={}", detailUrl, response.getStatusCode());
+        return "";
     }
 
     private String parseLawContent(String html) {
         Document doc = Jsoup.parse(html);
-        Elements contentElements = doc.select(".lawcon");
+        // ### KEY FIX ###
+        Elements contentElements = doc.select("#contentBody"); 
+        
+        if (contentElements.isEmpty()) {
+            log.warn("지정한 CSS 셀렉터(#contentBody)로 내용을 찾지 못했습니다. 사이트 구조가 변경되었을 수 있습니다.");
+        }
         return contentElements.eachText().stream().collect(Collectors.joining("\n"));
     }
 
@@ -121,4 +145,3 @@ public class LawService {
                 .orElseThrow(() -> new IllegalArgumentException("법률 정보를 찾을 수 없습니다."));
     }
 }
-
