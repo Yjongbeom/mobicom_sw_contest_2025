@@ -120,9 +120,39 @@ public class LawService {
     }
 
     private String parseLawContent(String html) {
-        Document doc = Jsoup.parse(html);
-        Elements contentElements = doc.select(".lawcon");
-        return contentElements.eachText().stream().collect(Collectors.joining("\n"));
+        if (html == null || html.isBlank()) {
+            return "법령 내용을 불러올 수 없습니다.";
+        }
+
+        try {
+            Document doc = Jsoup.parse(html);
+            StringBuilder contentBuilder = new StringBuilder();
+
+            // 다양한 선택자 시도
+            Elements contentElements = doc.select(".lawcon, .con_txt, #lawContent, .content");
+
+            if (!contentElements.isEmpty()) {
+                contentElements.forEach(el ->
+                        contentBuilder.append(el.text()).append("\n\n"));
+            }
+            // 내용이 없는 경우 대체 수집
+            else {
+                doc.select("p, div").forEach(el -> {
+                    String text = el.text().trim();
+                    if (!text.isEmpty() && text.length() > 20) {
+                        contentBuilder.append(text).append("\n\n");
+                    }
+                });
+            }
+
+            String content = contentBuilder.toString().trim();
+            return content.isEmpty() ?
+                    "이 법률의 상세 내용은 제공되지 않습니다." :
+                    content;
+        } catch (Exception e) {
+            log.error("법령 내용 파싱 실패: {}", e.getMessage());
+            return "법령 내용 파싱에 실패했습니다.";
+        }
     }
 
 
