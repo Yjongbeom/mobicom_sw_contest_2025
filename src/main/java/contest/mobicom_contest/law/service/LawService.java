@@ -11,11 +11,9 @@ import contest.mobicom_contest.law.model.LawInfo;
 import contest.mobicom_contest.law.model.LawInfoRepository;
 import contest.mobicom_contest.member.model.Member;
 
-// [추가] WebDriverManager import
-import io.github.bonigarcia.wdm.WebDriverManager;
-
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.select.Elements;
@@ -102,39 +100,43 @@ public class LawService {
         );
     }
 
+    /**
+     * Selenium과 Buildpack을 사용하여 Cloudtype 환경에서 동작하는 크롤러
+     */
     private String fetchLawDetailContent(String detailPath) {
         if (detailPath == null || detailPath.isBlank()) {
             return "";
         }
-
-        // ================== [최종 수정] ==================
-        // 1. WebDriverManager가 자동으로 chromedriver를 다운로드하고 설정합니다.
-        WebDriverManager.chromedriver().setup();
-        // ===============================================
-
+        
+        // Cloudtype Buildpack이 ChromeDriver를 자동으로 설치하고 경로를 설정해주므로
+        // System.setProperty나 WebDriverManager.setup() 호출이 필요 없습니다.
+        
         ChromeOptions options = new ChromeOptions();
-        options.addArguments("--headless");
-        options.addArguments("--no-sandbox");
-        options.addArguments("--disable-dev-shm-usage");
-        options.addArguments("--disable-gpu");
-        // User-Agent 추가 (봇으로 인식되는 것을 방지)
+        options.addArguments("--headless"); // GUI가 없는 환경을 위한 필수 옵션
+        options.addArguments("--no-sandbox"); // 컨테이너 환경에서의 권한 문제 방지
+        options.addArguments("--disable-dev-shm-usage"); // 공유 메모리 관련 문제 방지
+        options.addArguments("--disable-gpu"); // GPU 가속 비활성화
         options.addArguments("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36");
 
         WebDriver driver = null;
         try {
             driver = new ChromeDriver(options);
-            WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(10));
-
+            WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(15)); // 대기시간을 15초로 조금 더 넉넉하게 설정
+            
             String pageUrl = "https://www.law.go.kr" + detailPath;
             log.info("Selenium으로 페이지 접속: {}", pageUrl);
             driver.get(pageUrl);
 
+            // <iframe>으로 프레임 전환
             wait.until(ExpectedConditions.frameToBeAvailableAndSwitchToIt(By.id("lawService")));
-            wait.until(ExpectedConditions.presenceOfElementLocated(By.cssSelector("#contentBody")));
 
+            // <iframe> 내부에서 '#contentBody' 요소가 나타날 때까지 대기
+            wait.until(ExpectedConditions.presenceOfElementLocated(By.cssSelector("#contentBody")));
+            
+            // 최종 렌더링된 페이지 소스를 Jsoup으로 파싱
             Document doc = Jsoup.parse(driver.getPageSource());
             Elements contentElements = doc.select("#contentBody");
-
+            
             return contentElements.text();
 
         } catch (Exception e) {
@@ -142,7 +144,7 @@ public class LawService {
             return "";
         } finally {
             if (driver != null) {
-                driver.quit();
+                driver.quit(); // 드라이버 프로세스를 완전히 종료하여 리소스 누수 방지
             }
         }
     }
