@@ -100,7 +100,9 @@ public class LawApiClient {
 
         String resultCode = doc.getElementsByTagName("resultCode").item(0).getTextContent();
         if (!"00".equals(resultCode)) {
-            throw new Exception("API 오류: " + doc.getElementsByTagName("resultMsg").item(0).getTextContent());
+            String errorMsg = "API 오류: " + doc.getElementsByTagName("resultMsg").item(0).getTextContent();
+            log.error("법령 API 오류: {}", errorMsg); // !!! 오류 메시지 로깅 !!!
+            throw new Exception(errorMsg);
         }
 
         List<LawInfo> laws = new ArrayList<>();
